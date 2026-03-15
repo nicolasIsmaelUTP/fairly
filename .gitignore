@@ -168,6 +168,20 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# fairly local data
+.fairly/
+
+# Internal project docs
+/docs/
+
+# Node / React
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Static build served by FastAPI
+src/fairly/server/static/
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
