@@ -30,7 +30,9 @@ def get_dataset(db: Session, dataset_id: int) -> Dataset | None:
     return db.query(Dataset).filter(Dataset.dataset_id == dataset_id).first()
 
 
-def create_dataset(db: Session, name: str, imgs_route: str = "", csv_route: str = "") -> Dataset:
+def create_dataset(
+    db: Session, name: str, imgs_route: str = "", csv_route: str = "", image_column: str = ""
+) -> Dataset:
     """Insert a new dataset record.
 
     Args:
@@ -38,11 +40,12 @@ def create_dataset(db: Session, name: str, imgs_route: str = "", csv_route: str 
         name: Human-readable name.
         imgs_route: Path or S3 URI to images.
         csv_route: Path to the CSV metadata file.
+        image_column: CSV column name containing image paths.
 
     Returns:
         The newly created Dataset.
     """
-    ds = Dataset(name=name, imgs_route=imgs_route, csv_route=csv_route)
+    ds = Dataset(name=name, imgs_route=imgs_route, csv_route=csv_route, image_column=image_column)
     db.add(ds)
     db.commit()
     db.refresh(ds)
@@ -106,3 +109,26 @@ def create_column_mapping(
     db.commit()
     db.refresh(col)
     return col
+
+
+def update_dataset(db: Session, dataset_id: int, **kwargs) -> Dataset | None:
+    """Update one or more fields on an existing dataset."""
+    ds = get_dataset(db, dataset_id)
+    if ds is None:
+        return None
+    for k, v in kwargs.items():
+        if hasattr(ds, k):
+            setattr(ds, k, v)
+    db.commit()
+    db.refresh(ds)
+    return ds
+
+
+def delete_column_mapping(db: Session, column_id: int) -> bool:
+    """Delete a column mapping by ID."""
+    col = db.query(ColumnMapping).filter(ColumnMapping.column_id == column_id).first()
+    if col is None:
+        return False
+    db.delete(col)
+    db.commit()
+    return True

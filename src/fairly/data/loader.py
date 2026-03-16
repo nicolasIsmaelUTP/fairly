@@ -70,3 +70,24 @@ def create_thumbnail(source_path: str, image_id: int) -> str:
     img.save(str(thumb_path), "JPEG", quality=80)
 
     return str(thumb_path)
+
+
+def get_csv_preview(csv_path: str, nrows: int = 5) -> dict:
+    """Return column headers and first N rows of a CSV.
+
+    Args:
+        csv_path: Path to the CSV file.
+        nrows: Number of rows to return.
+
+    Returns:
+        Dict with headers, rows, total_rows, total_columns.
+    """
+    df = pd.read_csv(csv_path, nrows=nrows)
+    with open(csv_path, encoding="utf-8") as f:
+        total_rows = sum(1 for _ in f) - 1
+    return {
+        "headers": list(df.columns),
+        "rows": df.fillna("").to_dict(orient="records"),
+        "total_rows": total_rows,
+        "total_columns": len(df.columns),
+    }

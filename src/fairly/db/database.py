@@ -3,7 +3,7 @@
 Uses SQLite stored inside the .fairly/ directory.
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from fairly.config import DB_PATH
@@ -18,6 +18,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 def init_db() -> None:
     """Create all tables if they don't exist yet."""
     Base.metadata.create_all(bind=engine)
+    # Lightweight migration for new columns on existing tables
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE dataset ADD COLUMN image_column VARCHAR DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
 
 
 def get_db() -> Session:

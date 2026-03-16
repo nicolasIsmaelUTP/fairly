@@ -6,14 +6,16 @@ It is idempotent: rows are only inserted if they don't already exist.
 
 from sqlalchemy.orm import Session
 
+import json
+
 from fairly.db.database import SessionLocal
-from fairly.db.models import Dimension, Domain, Prompt, Settings
+from fairly.db.models import Dimension, Domain, Model, Prompt, Settings
 
 # ── Catalog Data ─────────────────────────────────────────────────────────────
 
 DOMAINS = ["Healthcare", "Hiring", "Marketing", "Education", "Finance"]
 
-DIMENSIONS = ["Gender", "Age", "Skin Tone", "Ethnicity", "Religion"]
+DIMENSIONS = ["Gender", "Age", "Skin Tone", "Ethnicity", "Religion", "Nationality", "Disability"]
 
 # Each prompt is (domain_name, dimension_name, text)
 SEED_PROMPTS: list[tuple[str, str, str]] = [
@@ -109,6 +111,88 @@ def _seed_prompts(
             db.add(Prompt(domain_id=domain_id, dimension_id=dimension_id, text=text))
 
 
+# ── Featherless models ───────────────────────────────────────────────────────
+
+BASE_URL = "https://api.featherless.ai/v1"
+
+FEATHERLESS_MODELS: list[dict] = [
+    {
+        "name": "google/gemma-3-4b-it",
+        "metadata": {
+            "is_gated": True,
+            "org": "Google",
+            "params": "4B",
+            "description": "Gemma 3 4B instruction-tuned model with strong multi-modal reasoning.",
+            "tags": ["instruction-tuned", "chat", "vision"],
+            "base_url": BASE_URL,
+            "curl": f'curl -H "Authorization: Bearer $FEATHERLESS_KEY" -H "Content-type: application/json" -d \'{{"model": "google/gemma-3-4b-it", "prompt": "...", "max_tokens": 1000}}\' {BASE_URL}/completions',
+        },
+    },
+    {
+        "name": "google/gemma-3-12b-it",
+        "metadata": {
+            "is_gated": True,
+            "org": "Google",
+            "params": "12B",
+            "description": "Gemma 3 12B instruction-tuned model for complex multi-modal tasks.",
+            "tags": ["instruction-tuned", "chat", "vision"],
+            "base_url": BASE_URL,
+            "curl": f'curl -H "Authorization: Bearer $FEATHERLESS_KEY" -H "Content-type: application/json" -d \'{{"model": "google/gemma-3-12b-it", "prompt": "...", "max_tokens": 1000}}\' {BASE_URL}/completions',
+        },
+    },
+    {
+        "name": "google/gemma-3-27b-it",
+        "metadata": {
+            "is_gated": True,
+            "org": "Google",
+            "params": "27B",
+            "description": "Gemma 3 27B instruction-tuned flagship model for high-quality multi-modal reasoning.",
+            "tags": ["instruction-tuned", "chat", "vision", "flagship"],
+            "base_url": BASE_URL,
+            "curl": f'curl -H "Authorization: Bearer $FEATHERLESS_KEY" -H "Content-type: application/json" -d \'{{"model": "google/gemma-3-27b-it", "prompt": "...", "max_tokens": 1000}}\' {BASE_URL}/completions',
+        },
+    },
+    {
+        "name": "google/medgemma-4b-it",
+        "metadata": {
+            "is_gated": True,
+            "org": "Google",
+            "params": "4B",
+            "description": "MedGemma 4B instruction-tuned for medical image understanding and clinical AI.",
+            "tags": ["medical", "vision", "instruction-tuned"],
+            "base_url": BASE_URL,
+            "curl": f'curl -H "Authorization: Bearer $FEATHERLESS_KEY" -H "Content-type: application/json" -d \'{{"model": "google/medgemma-4b-it", "prompt": "...", "max_tokens": 1000}}\' {BASE_URL}/completions',
+        },
+    },
+    {
+        "name": "google/gemma-3-4b-pt",
+        "metadata": {
+            "is_gated": True,
+            "org": "Google",
+            "params": "4B",
+            "description": "Gemma 3 4B pretrained base model. Requires HuggingFace gated access.",
+            "tags": ["pretrained", "base"],
+            "base_url": BASE_URL,
+            "curl": f'curl -H "Authorization: Bearer $FEATHERLESS_KEY" -H "Content-type: application/json" -d \'{{"model": "google/gemma-3-4b-pt", "prompt": "...", "max_tokens": 1000}}\' {BASE_URL}/completions',
+        },
+    },
+]
+
+
+def _seed_featherless_models(db: Session) -> None:
+    """Insert default Featherless catalogue models."""
+    for entry in FEATHERLESS_MODELS:
+        exists = db.query(Model).filter(Model.name == entry["name"]).first()
+        if exists is None:
+            db.add(
+                Model(
+                    name=entry["name"],
+                    source="featherless",
+                    metadata_json=json.dumps(entry["metadata"]),
+                )
+            )
+
+
 def seed_all() -> None:
     """Run all seed functions inside a single transaction."""
     db = SessionLocal()
@@ -117,6 +201,7 @@ def seed_all() -> None:
         domain_map = _seed_domains(db)
         dimension_map = _seed_dimensions(db)
         _seed_prompts(db, domain_map, dimension_map)
+        _seed_featherless_models(db)
         db.commit()
     finally:
         db.close()

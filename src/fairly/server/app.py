@@ -38,4 +38,14 @@ app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluat
 STATIC_DIR = Path(__file__).parent / "static"
 
 if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    from fastapi.responses import FileResponse
+
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """SPA fallback — serve index.html for all non-API, non-asset paths."""
+        file_path = STATIC_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(STATIC_DIR / "index.html")

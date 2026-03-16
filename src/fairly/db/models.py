@@ -67,6 +67,7 @@ class Dataset(Base):
     name = Column(String, nullable=False)
     imgs_route = Column(String, default="")
     csv_route = Column(String, default="")
+    image_column = Column(String, default="")  # CSV column name for image paths
 
     columns = relationship("ColumnMapping", back_populates="dataset")
     images = relationship("Image", back_populates="dataset")
