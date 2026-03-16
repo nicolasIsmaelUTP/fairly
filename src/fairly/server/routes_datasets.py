@@ -1,13 +1,16 @@
 """API routes for dataset management and column mapping."""
 
+import io
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from fairly.config import FAIRLY_DIR
+from fairly.crypto import decrypt
 from fairly.data.loader import get_csv_headers, get_csv_preview
 from fairly.db.crud_datasets import (
     create_column_mapping,
@@ -195,3 +198,61 @@ def remove_column(dataset_id: int, column_id: int, db: Session = Depends(get_db)
     if not delete_column_mapping(db, column_id):
         raise HTTPException(status_code=404, detail="Column mapping not found")
     return {"ok": True}
+
+
+# ── S3 Image Proxy ───────────────────────────────────────────────────────────
+
+
+@router.get("/{dataset_id}/image-proxy")
+def proxy_image(dataset_id: int, key: str, db: Session = Depends(get_db)):
+    """Proxy an S3 image to the browser.
+
+    ?key= is the full S3 key (path within the bucket).
+    Works for both s3://bucket/key URIs and plain keys.
+    """
+    from fairly.db.crud_settings import get_settings
+
+    ds = get_dataset(db, dataset_id)
+    if ds is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    settings = get_settings(db)
+    aws_key = decrypt(settings.aws_access_key or "")
+    aws_secret = decrypt(settings.aws_secret_access_key or "")
+
+    if not aws_key or not aws_secret:
+        raise HTTPException(status_code=400, detail="AWS credentials not configured")
+
+    # Parse bucket from imgs_route or from the key itself
+    s3_path = key if key.startswith("s3://") else f"s3://{key}"
+    parts = s3_path.replace("s3://", "").split("/", 1)
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Invalid S3 path")
+    bucket = parts[0]
+    object_key = parts[1]
+
+    import boto3
+    from botocore.config import Config as BotoConfig
+    from botocore.exceptions import ClientError
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=aws_key,
+        aws_secret_access_key=aws_secret,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=object_key)
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        raise HTTPException(status_code=404, detail=f"S3 error: {code}")
+
+    content_type = obj.get("ContentType", "image/png")
+    body = obj["Body"].read()
+
+    return StreamingResponse(
+        io.BytesIO(body),
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
