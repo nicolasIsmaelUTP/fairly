@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { fetchEvaluations, type Evaluation } from "@/lib/api"
+import { useQuery } from "@tanstack/react-query"
+import { evaluationsApi } from "@/features/evaluations/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { FlaskConical, CheckCircle, Clock, XCircle } from "lucide-react"
@@ -13,11 +13,10 @@ const STATUS_CONFIG: Record<string, { color: string; icon: typeof Clock }> = {
 }
 
 export default function DashboardPage() {
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([])
-
-  useEffect(() => {
-    fetchEvaluations().then(setEvaluations).catch(console.error)
-  }, [])
+  const { data: evaluations = [] } = useQuery({
+    queryKey: ["evaluations"],
+    queryFn: evaluationsApi.list,
+  })
 
   return (
     <div className="space-y-6">

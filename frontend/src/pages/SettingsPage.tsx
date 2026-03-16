@@ -1,39 +1,49 @@
-import { useEffect, useState } from "react"
-import {
-  fetchSettings,
-  updateSettings,
-  type Settings,
-} from "@/lib/api"
+import { useEffect } from "react"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { settingsApi } from "@/features/settings/api"
+import { settingsSchema, type SettingsFormValues } from "@/lib/schemas"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Save } from "lucide-react"
+import { Save, Check } from "lucide-react"
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [saved, setSaved] = useState(false)
+  const queryClient = useQueryClient()
 
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: settingsApi.get,
+  })
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+  } = useForm<SettingsFormValues>({
+    resolver: zodResolver(settingsSchema),
+    defaultValues: { featherless_key: "", aws_access_key: "", aws_secret_access_key: "" },
+  })
+
+  // Populate form when settings load
   useEffect(() => {
-    fetchSettings().then(setSettings).catch(console.error)
-  }, [])
+    if (settings) {
+      reset({
+        featherless_key: settings.featherless_key,
+        aws_access_key: settings.aws_access_key,
+        aws_secret_access_key: settings.aws_secret_access_key,
+      })
+    }
+  }, [settings, reset])
 
-  const handleSave = async () => {
-    if (!settings) return
-    await updateSettings({
-      featherless_key: settings.featherless_key,
-      aws_access_key: settings.aws_access_key,
-      aws_secret_access_key: settings.aws_secret_access_key,
-      theme: settings.theme,
-    })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
+  const mutation = useMutation({
+    mutationFn: (data: SettingsFormValues) => settingsApi.update(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+  })
 
   if (!settings) return <p className="text-muted-foreground">Loading…</p>
-
-  const update = (field: keyof Settings, value: string) =>
-    setSettings({ ...settings, [field]: value })
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -44,49 +54,54 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Featherless.ai</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Label>API Key</Label>
-          <Input
-            type="password"
-            value={settings.featherless_key}
-            onChange={(e) => update("featherless_key", e.target.value)}
-            placeholder="fl-..."
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">AWS S3</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Access Key</Label>
+      <form onSubmit={handleSubmit((v) => mutation.mutate(v))} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Featherless.ai</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Label htmlFor="featherless_key">API Key</Label>
             <Input
+              id="featherless_key"
               type="password"
-              value={settings.aws_access_key}
-              onChange={(e) => update("aws_access_key", e.target.value)}
+              placeholder="fl-..."
+              {...register("featherless_key")}
             />
-          </div>
-          <div>
-            <Label>Secret Access Key</Label>
-            <Input
-              type="password"
-              value={settings.aws_secret_access_key}
-              onChange={(e) => update("aws_secret_access_key", e.target.value)}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <Button onClick={handleSave} className="w-full">
-        <Save className="h-4 w-4 mr-2" />
-        {saved ? "Saved ✓" : "Save Settings"}
-      </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">AWS S3</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="aws_access_key">Access Key</Label>
+              <Input
+                id="aws_access_key"
+                type="password"
+                {...register("aws_access_key")}
+              />
+            </div>
+            <div>
+              <Label htmlFor="aws_secret_access_key">Secret Access Key</Label>
+              <Input
+                id="aws_secret_access_key"
+                type="password"
+                {...register("aws_secret_access_key")}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Button type="submit" className="w-full" disabled={mutation.isPending}>
+          {mutation.isSuccess ? (
+            <><Check className="h-4 w-4 mr-2" /> Saved</>
+          ) : (
+            <><Save className="h-4 w-4 mr-2" /> {mutation.isPending ? "Saving…" : "Save Settings"}</>
+          )}
+        </Button>
+      </form>
     </div>
   )
 }

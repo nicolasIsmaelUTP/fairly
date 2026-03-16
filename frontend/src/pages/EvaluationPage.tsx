@@ -1,69 +1,65 @@
-import { useEffect, useState } from "react"
+/** Evaluation results page with live KPI recalculation + progress bar. */
+
 import { useParams } from "react-router-dom"
-import {
-  fetchEvaluation,
-  fetchInferences,
-  fetchMetrics,
-  updateAuditStatus,
-  type Evaluation,
-  type Inference,
-  type Metric,
-} from "@/lib/api"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { evaluationsApi } from "@/features/evaluations/api"
+import MetricsPanel from "@/features/evaluations/components/MetricsPanel"
+import InferenceGallery from "@/features/evaluations/components/InferenceGallery"
+import ProgressBar from "@/features/evaluations/components/ProgressBar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { ThumbsUp, ThumbsDown, FileDown, BarChart3 } from "lucide-react"
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts"
+import { FileDown } from "lucide-react"
 
 export default function EvaluationPage() {
   const { id } = useParams<{ id: string }>()
   const evalId = Number(id)
+  const queryClient = useQueryClient()
 
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null)
-  const [inferences, setInferences] = useState<Inference[]>([])
-  const [metrics, setMetrics] = useState<Metric[]>([])
+  const { data: evaluation } = useQuery({
+    queryKey: ["evaluation", evalId],
+    queryFn: () => evaluationsApi.get(evalId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === "running" || status === "pending" ? 3000 : false
+    },
+  })
 
-  const load = () => {
-    fetchEvaluation(evalId).then(setEvaluation).catch(console.error)
-    fetchInferences(evalId).then(setInferences).catch(console.error)
-    fetchMetrics(evalId).then(setMetrics).catch(console.error)
-  }
+  const { data: inferences = [] } = useQuery({
+    queryKey: ["inferences", evalId],
+    queryFn: () => evaluationsApi.inferences(evalId),
+    refetchInterval: (query) =>
+      evaluation?.status === "running" || evaluation?.status === "pending" ? 3000 : false,
+  })
 
-  useEffect(() => { load() }, [evalId])
+  const { data: metrics = [] } = useQuery({
+    queryKey: ["metrics", evalId],
+    queryFn: () => evaluationsApi.metrics(evalId),
+    refetchInterval: (query) =>
+      evaluation?.status === "running" ? 5000 : false,
+  })
 
-  // Auto-refresh while running
-  useEffect(() => {
-    if (evaluation?.status !== "running") return
-    const interval = setInterval(load, 5000)
-    return () => clearInterval(interval)
-  }, [evaluation?.status])
-
-  const handleAudit = async (inferenceId: number, status: string) => {
-    await updateAuditStatus(inferenceId, status)
-    load()
-  }
-
-  const kpiMetric = metrics.find((m) => m.chart_type === "kpi_delta")
-  const barMetric = metrics.find((m) => m.chart_type === "bar_chart")
-
-  const kpiData = kpiMetric ? JSON.parse(kpiMetric.value_json) : null
-  const barData = barMetric
-    ? Object.entries(JSON.parse(barMetric.value_json)).map(([name, value]) => ({
-        name,
-        value,
-      }))
-    : []
-
-  const audited = inferences.filter((i) => i.audit_status !== "unreviewed").length
+  /* Optimistic audit update — updates local cache immediately (Story 4.1). */
+  const auditMutation = useMutation({
+    mutationFn: ({ inferenceId, status }: { inferenceId: number; status: string }) =>
+      evaluationsApi.updateAudit(inferenceId, status),
+    onMutate: async ({ inferenceId, status }) => {
+      await queryClient.cancelQueries({ queryKey: ["inferences", evalId] })
+      const prev = queryClient.getQueryData<typeof inferences>(["inferences", evalId])
+      queryClient.setQueryData(
+        ["inferences", evalId],
+        (old: typeof inferences | undefined) =>
+          old?.map((inf) =>
+            inf.inference_id === inferenceId ? { ...inf, audit_status: status } : inf
+          ) ?? []
+      )
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(["inferences", evalId], ctx.prev)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["inferences", evalId] }),
+  })
 
   if (!evaluation) {
     return <p className="text-muted-foreground">Loading…</p>
@@ -78,109 +74,40 @@ export default function EvaluationPage() {
           </h2>
           <Badge variant="outline">{evaluation.status}</Badge>
         </div>
-        <Button
-          variant="outline"
-          render={<a href={`/api/evaluations/${evalId}/export-pdf`} target="_blank" rel="noreferrer" />}
-        >
-          <FileDown className="h-4 w-4 mr-2" />
-          Export to PDF
-        </Button>
+        {evaluation.status === "completed" && (
+          <Button
+            variant="outline"
+            render={
+              <a
+                href={`/api/evaluations/${evalId}/export-pdf`}
+                download={`fairly_report_${evalId}.pdf`}
+                rel="noreferrer"
+              />
+            }
+          >
+            <FileDown className="h-4 w-4 mr-2" />
+            Export to PDF
+          </Button>
+        )}
       </div>
 
-      {/* Metrics */}
-      {metrics.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* KPI */}
-          {kpiData && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">
-                  Overall Bias Delta
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-4xl font-bold">Δ {kpiData.delta_percent}%</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {kpiData.flagged} flagged / {kpiData.total} total
-                </p>
-              </CardContent>
-            </Card>
-          )}
+      {/* Progress bar (Story 3.3) */}
+      <ProgressBar evaluation={evaluation} inferenceCount={inferences.length} />
 
-          {/* Bar chart */}
-          {barData.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" /> Bias by Dimension
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Bar dataKey="value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+      {/* Metrics with live recalculation */}
+      {inferences.length > 0 && (
+        <MetricsPanel metrics={metrics} inferences={inferences} />
       )}
 
       <Separator />
 
       {/* Inference gallery */}
-      <div>
-        <h3 className="text-lg font-semibold mb-1">Inference Gallery</h3>
-        <p className="text-xs text-muted-foreground mb-4">
-          Audited: {audited} / {inferences.length}
-        </p>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {inferences.map((inf) => (
-            <Card
-              key={inf.inference_id}
-              className={
-                inf.audit_status === "flag"
-                  ? "border-red-400"
-                  : inf.audit_status === "pass"
-                  ? "border-green-400"
-                  : ""
-              }
-            >
-              <CardContent className="pt-4 space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Prompt #{inf.prompt_id} · Image #{inf.image_id}
-                </p>
-                <p className="text-sm leading-relaxed">{inf.response}</p>
-                <div className="flex items-center gap-2 pt-2">
-                  <Button
-                    size="sm"
-                    variant={inf.audit_status === "pass" ? "default" : "outline"}
-                    onClick={() => handleAudit(inf.inference_id, "pass")}
-                  >
-                    <ThumbsUp className="h-3 w-3 mr-1" /> Pass
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={inf.audit_status === "flag" ? "destructive" : "outline"}
-                    onClick={() => handleAudit(inf.inference_id, "flag")}
-                  >
-                    <ThumbsDown className="h-3 w-3 mr-1" /> Flag
-                  </Button>
-                  <Badge variant="outline" className="ml-auto text-xs">
-                    {inf.audit_status}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      <InferenceGallery
+        inferences={inferences}
+        onAudit={(inferenceId, status) =>
+          auditMutation.mutate({ inferenceId, status })
+        }
+      />
     </div>
   )
 }
