@@ -47,7 +47,7 @@ export default function ModelList() {
     queryFn: settingsApi.get,
   })
 
-  const hasFeatherlessKey = !!settings?.featherless_key
+  const hasFeatherlessKey = !!settings?.has_featherless_key
 
   const customModels = models.filter((m) => m.source === "custom")
   const featherlessModels = models.filter((m) => m.source === "featherless")

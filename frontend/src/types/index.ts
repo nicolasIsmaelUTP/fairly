@@ -6,6 +6,8 @@ export interface Settings {
   aws_access_key: string
   aws_secret_access_key: string
   theme: string
+  has_featherless_key: boolean
+  has_aws_keys: boolean
 }
 
 export interface Model {
