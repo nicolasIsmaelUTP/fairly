@@ -1,94 +1,144 @@
-/** Sampling config + cost estimation (Story 3.2). */
+/** Sampling & Cost Control — matches the mockup with Full/Recommended/Custom sample sizes. */
 
 import { useBenchmarkStore } from "@/features/benchmark/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { AlertTriangle, Calculator } from "lucide-react"
-import type { Prompt } from "@/types"
+import { Input } from "@/components/ui/input"
+import { Zap } from "lucide-react"
+
+const TOKENS_PER_IMAGE_LOW = 85
+const TOKENS_PER_IMAGE_HIGH = 340
 
 interface Props {
   promptCount: number
+  totalDatasetImages?: number
 }
 
-export default function SamplingConfig({ promptCount }: Props) {
-  const { numImages, resolution, setNumImages, setResolution } =
-    useBenchmarkStore()
+export default function SamplingConfig({ promptCount, totalDatasetImages = 500 }: Props) {
+  const {
+    numImages, resolution, sampleMode, customSampleSize,
+    setNumImages, setResolution, setSampleMode, setCustomSampleSize,
+  } = useBenchmarkStore()
 
-  const totalInferences = numImages * promptCount
+  const tokensPerImage = resolution === "high" ? TOKENS_PER_IMAGE_HIGH : TOKENS_PER_IMAGE_LOW
+  const estTokens = numImages * promptCount * tokensPerImage
+
+  const handleSampleMode = (mode: "full" | "recommended" | "custom") => {
+    setSampleMode(mode)
+    if (mode === "full") setNumImages(totalDatasetImages)
+    else if (mode === "recommended") setNumImages(50)
+    else setNumImages(customSampleSize)
+  }
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">4. Sampling &amp; Cost</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Zap className="h-4 w-4 text-primary" />
+          Sampling &amp; Cost Control
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5">
+        {/* Sample size */}
         <div>
-          <Label>Number of Images</Label>
-          <Select
-            value={String(numImages)}
-            onValueChange={(v) => { if (v) setNumImages(Number(v)) }}
-          >
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10 (Quick test)</SelectItem>
-              <SelectItem value="50">50 (Recommended)</SelectItem>
-              <SelectItem value="200">200</SelectItem>
-              <SelectItem value="1000">1,000</SelectItem>
-              <SelectItem value="10000">10,000 (Full)</SelectItem>
-            </SelectContent>
-          </Select>
-          {numImages >= 1000 && (
-            <div className="flex items-center gap-2 mt-2 text-orange-600 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Large sample sizes consume many tokens and may take a long time.
-            </div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Sample Size
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => handleSampleMode("full")}
+              className={`rounded-lg border p-3 text-center transition-colors ${
+                sampleMode === "full"
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "hover:bg-muted"
+              }`}
+            >
+              <span className="block text-sm font-medium">Full Dataset</span>
+              <span className="block text-xs text-muted-foreground">{totalDatasetImages} images</span>
+            </button>
+            <button
+              onClick={() => handleSampleMode("recommended")}
+              className={`rounded-lg border p-3 text-center transition-colors ${
+                sampleMode === "recommended"
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "hover:bg-muted"
+              }`}
+            >
+              <span className="block text-sm font-medium">Recommended</span>
+              <span className="block text-xs text-muted-foreground">Stratified 50</span>
+            </button>
+            <button
+              onClick={() => handleSampleMode("custom")}
+              className={`rounded-lg border p-3 text-center transition-colors ${
+                sampleMode === "custom"
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "hover:bg-muted"
+              }`}
+            >
+              <span className="block text-sm font-medium">Custom</span>
+              <span className="block text-xs text-muted-foreground">Set your own</span>
+            </button>
+          </div>
+          {sampleMode === "custom" && (
+            <Input
+              type="number"
+              min={1}
+              max={totalDatasetImages}
+              value={customSampleSize}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                setCustomSampleSize(n)
+                setNumImages(n)
+              }}
+              className="mt-2 w-32"
+            />
           )}
         </div>
 
+        {/* Image quality */}
         <div>
-          <Label>Image Resolution</Label>
-          <Select
-            value={resolution}
-            onValueChange={(v) => { if (v) setResolution(v) }}
-          >
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="low">Low (recommended)</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-            </SelectContent>
-          </Select>
-          {resolution === "high" && (
-            <div className="flex items-center gap-2 mt-2 text-orange-600 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              High resolution increases API costs significantly.
-            </div>
-          )}
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Image Quality
+          </p>
+          <div className="inline-flex rounded-lg border overflow-hidden">
+            <button
+              onClick={() => setResolution("high")}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                resolution === "high"
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              High Resolution
+            </button>
+            <button
+              onClick={() => setResolution("low")}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                resolution === "low"
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              Low Resolution
+            </button>
+          </div>
         </div>
 
-        {/* Cost estimation (Story 3.2) */}
+        {/* Cost estimate */}
         {promptCount > 0 && (
-          <div className="rounded-lg bg-muted p-4 space-y-1">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Calculator className="h-4 w-4" />
-              Inference Estimate
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {numImages} images × {promptCount} prompts ={" "}
-              <span className="font-semibold text-foreground">{totalInferences}</span>{" "}
-              total inferences
+          <div className="rounded-lg bg-muted/50 border border-border px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Estimated payload:{" "}
+              <span className="font-mono font-semibold text-foreground">{numImages}</span>{" "}
+              images @{" "}
+              <span className="font-mono font-semibold text-foreground">
+                {resolution === "high" ? "High" : "Low"} Res
+              </span>{" "}
+              ={" "}
+              <span className="font-mono font-semibold text-foreground">
+                {estTokens.toLocaleString()}
+              </span>{" "}
+              tokens
             </p>
-            {totalInferences > 500 && (
-              <p className="text-xs text-orange-600">
-                ⚠ This may take a while depending on the model's response time.
-              </p>
-            )}
           </div>
         )}
       </CardContent>

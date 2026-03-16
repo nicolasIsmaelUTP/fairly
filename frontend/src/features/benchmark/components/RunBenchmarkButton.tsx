@@ -1,12 +1,11 @@
-/** "Run Benchmark" button with validation feedback. */
+/** "Run Benchmark" button with gradient style. */
 
 import { useMutation } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import { evaluationsApi } from "@/features/evaluations/api"
 import { useBenchmarkStore } from "@/features/benchmark/store"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { FlaskConical } from "lucide-react"
+import { Play } from "lucide-react"
 
 export default function RunBenchmarkButton() {
   const navigate = useNavigate()
@@ -32,17 +31,14 @@ export default function RunBenchmarkButton() {
   })
 
   return (
-    <>
-      <Separator />
-      <Button
-        size="lg"
-        className="w-full"
-        disabled={!canRun || mutation.isPending}
-        onClick={() => mutation.mutate()}
-      >
-        <FlaskConical className="h-4 w-4 mr-2" />
-        {mutation.isPending ? "Launching…" : "Run Benchmark"}
-      </Button>
-    </>
+    <Button
+      size="lg"
+      className="w-full bg-gradient-to-r from-[#7503A6] to-[#5B8DEF] hover:from-[#6002900] hover:to-[#4a7de0] text-white"
+      disabled={!canRun || mutation.isPending}
+      onClick={() => mutation.mutate()}
+    >
+      <Play className="h-4 w-4 mr-2" />
+      {mutation.isPending ? "Launching…" : "Run Benchmark"}
+    </Button>
   )
 }

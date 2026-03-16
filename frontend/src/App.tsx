@@ -9,6 +9,7 @@ import ModelsPage from "./pages/ModelsPage"
 import DatasetsPage from "./pages/DatasetsPage"
 import BenchmarkPage from "./pages/BenchmarkPage"
 import EvaluationPage from "./pages/EvaluationPage"
+import ResultsPage from "./pages/ResultsPage"
 import SettingsPage from "./pages/SettingsPage"
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/models" element={<ModelsPage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/benchmark" element={<BenchmarkPage />} />
+        <Route path="/results" element={<ResultsPage />} />
         <Route path="/evaluations/:id" element={<EvaluationPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

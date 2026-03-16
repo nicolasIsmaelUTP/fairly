@@ -20,6 +20,15 @@ export interface Dataset {
   name: string
   imgs_route: string
   csv_route: string
+  image_column: string
+}
+
+export interface CsvPreview {
+  headers: string[]
+  rows: Record<string, unknown>[]
+  total_rows: number
+  total_columns: number
+  path?: string
 }
 
 export interface ColumnMapping {

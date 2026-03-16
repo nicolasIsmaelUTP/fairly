@@ -9,13 +9,18 @@ interface BenchmarkState {
   activeDims: Set<number>
   numImages: number
   resolution: string
+  sampleMode: "full" | "recommended" | "custom"
+  customSampleSize: number
 
   setModelId: (id: number | null) => void
   setDatasetId: (id: number | null) => void
   setDomainId: (id: number | null) => void
   toggleDim: (id: number) => void
+  setActiveDims: (dims: Set<number>) => void
   setNumImages: (n: number) => void
   setResolution: (r: string) => void
+  setSampleMode: (m: "full" | "recommended" | "custom") => void
+  setCustomSampleSize: (n: number) => void
   reset: () => void
 }
 
@@ -26,6 +31,8 @@ const INITIAL = {
   activeDims: new Set<number>(),
   numImages: 50,
   resolution: "low",
+  sampleMode: "recommended" as const,
+  customSampleSize: 100,
 }
 
 export const useBenchmarkStore = create<BenchmarkState>((set) => ({
@@ -43,7 +50,10 @@ export const useBenchmarkStore = create<BenchmarkState>((set) => ({
       return { activeDims: next }
     }),
 
+  setActiveDims: (dims) => set({ activeDims: dims }),
   setNumImages: (n) => set({ numImages: n }),
   setResolution: (r) => set({ resolution: r }),
+  setSampleMode: (m) => set({ sampleMode: m }),
+  setCustomSampleSize: (n) => set({ customSampleSize: n }),
   reset: () => set({ ...INITIAL, activeDims: new Set() }),
 }))

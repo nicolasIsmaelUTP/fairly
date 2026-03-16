@@ -1,71 +1,63 @@
-/** Domain picker + Dimension toggle switches — core of the Benchmark Constructor. */
+/** Bias dimension toggles — 2-column grid. Dimensions without column mappings show "No data". */
 
 import { useQuery } from "@tanstack/react-query"
 import { promptsApi } from "@/features/benchmark/api"
+import { datasetsApi } from "@/features/datasets/api"
 import { useBenchmarkStore } from "@/features/benchmark/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 export default function DimensionToggles() {
-  const { domainId, setDomainId, activeDims, toggleDim } = useBenchmarkStore()
-
-  const { data: domains = [] } = useQuery({
-    queryKey: ["domains"],
-    queryFn: promptsApi.domains,
-  })
+  const { datasetId, activeDims, toggleDim } = useBenchmarkStore()
 
   const { data: dimensions = [] } = useQuery({
     queryKey: ["dimensions"],
     queryFn: promptsApi.dimensions,
   })
 
-  return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">2. Use Case (Domain)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={domainId ? String(domainId) : ""}
-            onValueChange={(v) => { if (v) setDomainId(Number(v)) }}
-          >
-            <SelectTrigger><SelectValue placeholder="Choose a domain" /></SelectTrigger>
-            <SelectContent>
-              {domains.map((d) => (
-                <SelectItem key={d.domain_id} value={String(d.domain_id)}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+  const { data: columns = [] } = useQuery({
+    queryKey: ["columns", datasetId],
+    queryFn: () => datasetsApi.listColumns(datasetId!),
+    enabled: !!datasetId,
+  })
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">3. Bias Dimensions</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {dimensions.map((dim) => (
-            <div key={dim.dimension_id} className="flex items-center justify-between">
-              <Label>{dim.name}</Label>
-              <Switch
-                checked={activeDims.has(dim.dimension_id)}
-                onCheckedChange={() => toggleDim(dim.dimension_id)}
-              />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-    </>
+  const mappedDimIds = new Set(columns.map((c) => c.dimension_id))
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold">Bias Dimensions</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Based on metadata mapped in your connected dataset
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-3">
+          {dimensions.map((dim) => {
+            const hasData = datasetId ? mappedDimIds.has(dim.dimension_id) : true
+            return (
+              <div
+                key={dim.dimension_id}
+                className={`flex items-center justify-between rounded-lg border p-3 ${
+                  hasData ? "bg-background" : "bg-muted/50 opacity-60"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{dim.name}</span>
+                  {!hasData && (
+                    <span className="text-[10px] text-muted-foreground">No data</span>
+                  )}
+                </div>
+                <Switch
+                  checked={activeDims.has(dim.dimension_id)}
+                  onCheckedChange={() => toggleDim(dim.dimension_id)}
+                  disabled={!hasData}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

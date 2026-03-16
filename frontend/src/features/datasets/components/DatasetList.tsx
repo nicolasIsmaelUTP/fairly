@@ -1,25 +1,13 @@
-/** Dataset list + "Add Dataset" dialog + Column Mapping UI. */
+/** Datasets page — connect data, preview CSV, map columns to dimensions. */
 
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { datasetsApi } from "@/features/datasets/api"
 import { promptsApi } from "@/features/benchmark/api"
-import { datasetSchema, type DatasetFormValues } from "@/lib/schemas"
-import type { Dataset, ColumnMapping, Dimension } from "@/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import type { Dataset, ColumnMapping, Dimension, CsvPreview } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -27,234 +15,397 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Database, Plus, Trash2, Columns, Pencil } from "lucide-react"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Database,
+  Upload,
+  FolderOpen,
+  Image as ImageIcon,
+  ScanSearch,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export default function DatasetList() {
-  const [addOpen, setAddOpen] = useState(false)
   const queryClient = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Form state
+  const [sourceType, setSourceType] = useState<"local" | "s3">("s3")
+  const [folderPath, setFolderPath] = useState("")
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+
+  // Active dataset
   const { data: datasets = [] } = useQuery({
     queryKey: ["datasets"],
     queryFn: datasetsApi.list,
   })
+  const [activeId, setActiveId] = useState<number | null>(null)
+  const activeDataset = datasets.find((d) => d.dataset_id === activeId) ?? null
 
-  const createMutation = useMutation({
-    mutationFn: (values: DatasetFormValues) => datasetsApi.create(values),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["datasets"] })
-      setAddOpen(false)
-      reset()
-    },
+  // Auto-select last dataset on mount
+  useEffect(() => {
+    if (datasets.length > 0 && activeId === null) {
+      const ds = datasets[datasets.length - 1]
+      setActiveId(ds.dataset_id)
+      setFolderPath(ds.imgs_route)
+      setSourceType(ds.imgs_route.startsWith("s3://") ? "s3" : "local")
+    }
+  }, [datasets, activeId])
+
+  // CSV preview for active dataset
+  const { data: preview } = useQuery<CsvPreview>({
+    queryKey: ["csv-preview", activeId],
+    queryFn: () => datasetsApi.csvPreview(activeId!),
+    enabled: !!activeId,
+    retry: false,
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: datasetsApi.delete,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["datasets"] }),
-  })
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<DatasetFormValues>({
-    resolver: zodResolver(datasetSchema),
-    defaultValues: { name: "", imgs_route: "", csv_route: "" },
-  })
-
-  // Column-mapping state
-  const [mappingDs, setMappingDs] = useState<Dataset | null>(null)
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Datasets</h2>
-          <p className="text-muted-foreground">
-            Configure your image sources and CSV metadata.
-          </p>
-        </div>
-        <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) reset() }}>
-          <DialogTrigger render={<Button />}>
-            <Plus className="h-4 w-4 mr-2" />Add Dataset
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Dataset</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit((v) => createMutation.mutate(v))} className="space-y-4 pt-2">
-              <div>
-                <Label>Name</Label>
-                <Input placeholder="FHIIBE Sample" {...register("name")} />
-                {errors.name && <p className="text-xs text-destructive mt-1">{errors.name.message}</p>}
-              </div>
-              <div>
-                <Label>Images Path (local or S3)</Label>
-                <Input placeholder="s3://fairly-data/ or C:/images/" {...register("imgs_route")} />
-                {errors.imgs_route && <p className="text-xs text-destructive mt-1">{errors.imgs_route.message}</p>}
-              </div>
-              <div>
-                <Label>CSV Metadata Path</Label>
-                <Input placeholder="C:/data/metadata.csv" {...register("csv_route")} />
-                {errors.csv_route && <p className="text-xs text-destructive mt-1">{errors.csv_route.message}</p>}
-              </div>
-              <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Saving…" : "Save Dataset"}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {datasets.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <Database className="mx-auto h-10 w-10 mb-4 opacity-50" />
-            <p>No datasets configured yet.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {datasets.map((ds) => (
-            <Card key={ds.dataset_id}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">{ds.name}</CardTitle>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => setMappingDs(ds)}>
-                    <Columns className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMutation.mutate(ds.dataset_id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="text-xs text-muted-foreground space-y-1">
-                <p>Images: {ds.imgs_route || "—"}</p>
-                <p>CSV: {ds.csv_route || "—"}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Column Mapping Dialog */}
-      <Dialog open={!!mappingDs} onOpenChange={(v) => { if (!v) setMappingDs(null) }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-4 w-4" />
-              Column Mapping — {mappingDs?.name}
-            </DialogTitle>
-          </DialogHeader>
-          {mappingDs && <ColumnMappingEditor dataset={mappingDs} />}
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-/* ── Column Mapping Editor ────────────────────────────────────────────────── */
-
-function ColumnMappingEditor({ dataset }: { dataset: Dataset }) {
-  const queryClient = useQueryClient()
-
-  const { data: headers = [] } = useQuery({
-    queryKey: ["csv-headers", dataset.dataset_id],
-    queryFn: () => datasetsApi.csvHeaders(dataset.dataset_id),
-  })
-
+  // Column mappings for active dataset
   const { data: existingCols = [] } = useQuery({
-    queryKey: ["columns", dataset.dataset_id],
-    queryFn: () => datasetsApi.listColumns(dataset.dataset_id),
+    queryKey: ["columns", activeId],
+    queryFn: () => datasetsApi.listColumns(activeId!),
+    enabled: !!activeId,
   })
 
-  const { data: dimensions = [] } = useQuery({
+  // Dimensions
+  const { data: dimensions = [] } = useQuery<Dimension[]>({
     queryKey: ["dimensions"],
     queryFn: promptsApi.dimensions,
   })
 
-  const [selectedHeader, setSelectedHeader] = useState<string>("")
-  const [selectedDim, setSelectedDim] = useState<number | null>(null)
-
-  const addMapping = useMutation({
-    mutationFn: () =>
-      datasetsApi.createColumn(dataset.dataset_id, {
-        name: selectedHeader,
-        dimension_id: selectedDim!,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["columns", dataset.dataset_id] })
-      setSelectedHeader("")
-      setSelectedDim(null)
+  // ── Connect / Reconnect ──────────────────────────────────────────────────
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      let csvPath = ""
+      if (csvFile) {
+        const result = await datasetsApi.uploadCsv(csvFile)
+        csvPath = result.path!
+      }
+      if (activeDataset) {
+        const updates: Record<string, unknown> = { imgs_route: folderPath }
+        if (csvPath) updates.csv_route = csvPath
+        return datasetsApi.update(activeDataset.dataset_id, updates)
+      }
+      return datasetsApi.create({
+        name:
+          csvFile?.name?.replace(/\.(csv|tsv)$/i, "") ||
+          folderPath.split("/").pop() ||
+          "Dataset",
+        imgs_route: folderPath,
+        csv_route: csvPath,
+      })
+    },
+    onSuccess: (ds) => {
+      setActiveId(ds.dataset_id)
+      setCsvFile(null)
+      queryClient.invalidateQueries({ queryKey: ["datasets"] })
+      queryClient.invalidateQueries({ queryKey: ["csv-preview", ds.dataset_id] })
     },
   })
 
-  const getDimName = (id: number) =>
-    dimensions.find((d: Dimension) => d.dimension_id === id)?.name ?? `#${id}`
+  // ── Dimension mapping helpers ────────────────────────────────────────────
+  const handleDimensionMapping = async (
+    dimensionId: number,
+    columnName: string,
+  ) => {
+    if (!activeId) return
+    const existing = existingCols.find(
+      (c: ColumnMapping) => c.dimension_id === dimensionId,
+    )
+    if (existing) {
+      await datasetsApi.deleteColumn(activeId, existing.column_id)
+    }
+    if (columnName) {
+      await datasetsApi.createColumn(activeId, {
+        name: columnName,
+        dimension_id: dimensionId,
+      })
+    }
+    queryClient.invalidateQueries({ queryKey: ["columns", activeId] })
+  }
 
+  const handleImageColumnMapping = async (columnName: string) => {
+    if (!activeId) return
+    await datasetsApi.update(activeId, { image_column: columnName })
+    queryClient.invalidateQueries({ queryKey: ["datasets"] })
+  }
+
+  // ── File handlers ────────────────────────────────────────────────────────
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (
+      file &&
+      (file.name.endsWith(".csv") || file.name.endsWith(".tsv"))
+    ) {
+      setCsvFile(file)
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setCsvFile(file)
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4 pt-2">
-      {/* Existing mappings */}
-      {existingCols.length > 0 && (
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Current mappings</Label>
-          <div className="flex flex-wrap gap-2">
-            {existingCols.map((c: ColumnMapping) => (
-              <Badge key={c.column_id} variant="outline">
-                {c.name} → {getDimName(c.dimension_id)}
-              </Badge>
-            ))}
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold">Datasets</h2>
+        <p className="text-muted-foreground">
+          Connect your data and validate metadata before evaluation
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* ── Left: Data Connection ─────────────────────────────────────── */}
+        <div className="border border-dashed border-border rounded-lg p-6 space-y-5">
+          <h3 className="text-base font-semibold">Data Connection</h3>
+
+          {/* Source toggle */}
+          <div className="flex bg-muted rounded-lg p-0.5">
+            <button
+              className={cn(
+                "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
+                sourceType === "local"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setSourceType("local")}
+            >
+              Local Folder
+            </button>
+            <button
+              className={cn(
+                "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
+                sourceType === "s3"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setSourceType("s3")}
+            >
+              AWS S3
+            </button>
           </div>
-          <Separator />
-        </div>
-      )}
 
-      {/* Add new mapping */}
-      {headers.length > 0 ? (
-        <div className="space-y-3">
-          <Label>CSV Column</Label>
-          <Select value={selectedHeader} onValueChange={(v) => { if (v) setSelectedHeader(v) }}>
-            <SelectTrigger><SelectValue placeholder="Select a column" /></SelectTrigger>
-            <SelectContent>
-              {headers.map((h: string) => (
-                <SelectItem key={h} value={h}>{h}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Path input */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              {sourceType === "s3" ? "S3 Path" : "Folder Path"}
+            </Label>
+            <Input
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+              placeholder={
+                sourceType === "s3" ? "s3://fairly-data/" : "/data/images/"
+              }
+            />
+          </div>
 
-          <Label>Bias Dimension</Label>
-          <Select
-            value={selectedDim ? String(selectedDim) : ""}
-            onValueChange={(v) => { if (v) setSelectedDim(Number(v)) }}
-          >
-            <SelectTrigger><SelectValue placeholder="Select a dimension" /></SelectTrigger>
-            <SelectContent>
-              {dimensions.map((d: Dimension) => (
-                <SelectItem key={d.dimension_id} value={String(d.dimension_id)}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* CSV drop zone */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              CSV File
+            </Label>
+            <div
+              className={cn(
+                "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-primary/50",
+                dragOver ? "border-primary bg-primary/5" : "border-border",
+              )}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleFileDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
+              {csvFile ? (
+                <p className="text-sm font-medium">{csvFile.name}</p>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Drag &amp; drop or click
+                  </p>
+                  <p className="text-xs text-muted-foreground/60">.csv, .tsv</p>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.tsv"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+            </div>
+          </div>
 
+          {/* Connect button */}
           <Button
-            className="w-full"
-            disabled={!selectedHeader || !selectedDim || addMapping.isPending}
-            onClick={() => addMapping.mutate()}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={() => connectMutation.mutate()}
+            disabled={connectMutation.isPending || (!folderPath && !csvFile)}
           >
-            {addMapping.isPending ? "Saving…" : "Add Mapping"}
+            {connectMutation.isPending ? (
+              "Connecting…"
+            ) : (
+              <>
+                <Database className="h-4 w-4 mr-2" />
+                {activeDataset ? "Reconnect" : "Connect Dataset"}
+              </>
+            )}
           </Button>
         </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Could not read CSV headers. Make sure the CSV path exists and is accessible.
-        </p>
-      )}
+
+        {/* ── Right: Preview ────────────────────────────────────────────── */}
+        {!activeDataset || !preview ? (
+          <div className="border border-dashed border-border rounded-lg flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <FolderOpen className="h-12 w-12 mb-3 opacity-30" />
+            <p className="text-sm">Connect a dataset to see the preview</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Data Preview Table */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between">
+                <h3 className="font-semibold">Data Preview</h3>
+                <span className="text-xs text-muted-foreground">
+                  {preview.total_rows} rows &middot; {preview.total_columns}{" "}
+                  columns
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {preview.headers.map((h) => (
+                        <TableHead key={h} className="text-xs font-mono">
+                          {h}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {preview.rows.map((row, i) => (
+                      <TableRow key={i}>
+                        {preview.headers.map((h) => (
+                          <TableCell key={h} className="text-xs">
+                            {String(row[h] ?? "")}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {/* Smart Mapping */}
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <ScanSearch className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-semibold">Smart Mapping</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Click each attribute to map it to a column in your data
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {/* Image Path mapping */}
+                <MappingPill
+                  label="Image Path"
+                  headers={preview.headers}
+                  value={activeDataset.image_column || ""}
+                  onChange={handleImageColumnMapping}
+                />
+                {/* Dimension mappings */}
+                {dimensions.map((dim) => {
+                  const mapping = existingCols.find(
+                    (c: ColumnMapping) => c.dimension_id === dim.dimension_id,
+                  )
+                  return (
+                    <MappingPill
+                      key={dim.dimension_id}
+                      label={dim.name}
+                      headers={preview.headers}
+                      value={mapping?.name || ""}
+                      onChange={(col) =>
+                        handleDimensionMapping(dim.dimension_id, col)
+                      }
+                    />
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Image Preview */}
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-semibold">Image Preview</h3>
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                {Array.from({
+                  length: Math.min(6, preview.total_rows),
+                }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-20 h-20 bg-muted rounded-lg border flex items-center justify-center"
+                  >
+                    <ImageIcon className="h-6 w-6 text-muted-foreground/30" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
+  )
+}
+
+/* ── Mapping Pill ──────────────────────────────────────────────────────────── */
+
+function MappingPill({
+  label,
+  headers,
+  value,
+  onChange,
+}: {
+  label: string
+  headers: string[]
+  value: string
+  onChange: (column: string) => void
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={(v) => { if (v) onChange(v) }}>
+      <SelectTrigger
+        className={cn(
+          "h-8 rounded-full text-xs min-w-[100px]",
+          value
+            ? "bg-primary/10 border-primary/30 text-primary"
+            : "border-border",
+        )}
+      >
+        <span className="truncate">{label}</span>
+      </SelectTrigger>
+      <SelectContent>
+        {headers.map((h) => (
+          <SelectItem key={h} value={h}>
+            {h}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }

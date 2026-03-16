@@ -1,18 +1,19 @@
-/** Benchmark Constructor page — thin wrapper over feature components. */
+/** Benchmark Constructor — two-column layout matching the design mockup. */
 
 import { useQuery } from "@tanstack/react-query"
 import { promptsApi } from "@/features/benchmark/api"
+import { datasetsApi } from "@/features/datasets/api"
 import { useBenchmarkStore } from "@/features/benchmark/store"
-import EntitySelector from "@/features/benchmark/components/EntitySelector"
+import UseCasePicker from "@/features/benchmark/components/UseCasePicker"
 import DimensionToggles from "@/features/benchmark/components/DimensionToggles"
 import SamplingConfig from "@/features/benchmark/components/SamplingConfig"
 import PromptPreview from "@/features/benchmark/components/PromptPreview"
-import RunBenchmarkButton from "@/features/benchmark/components/RunBenchmarkButton"
+import BenchmarkSummary from "@/features/benchmark/components/BenchmarkSummary"
+import EntitySelector from "@/features/benchmark/components/EntitySelector"
 
 export default function BenchmarkPage() {
-  const { domainId, activeDims } = useBenchmarkStore()
+  const { domainId, datasetId, activeDims } = useBenchmarkStore()
 
-  /* Reactively fetch & filter prompts (Story 3.1). */
   const { data: allPrompts = [] } = useQuery({
     queryKey: ["prompts", domainId],
     queryFn: () => promptsApi.list({ domain_id: domainId ?? undefined }),
@@ -27,19 +28,26 @@ export default function BenchmarkPage() {
   const visiblePrompts = allPrompts.filter((p) => activeDims.has(p.dimension_id))
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h2 className="text-2xl font-bold">Benchmark Constructor</h2>
-        <p className="text-muted-foreground">
-          Configure and launch a bias evaluation.
-        </p>
+    <div className="flex gap-6 items-start">
+      {/* Left — main content */}
+      <div className="flex-1 space-y-6 min-w-0">
+        <div>
+          <h2 className="text-2xl font-bold">Benchmark Constructor</h2>
+          <p className="text-muted-foreground">
+            Configure and launch bias evaluations
+          </p>
+        </div>
+
+        <UseCasePicker />
+        <PromptPreview prompts={visiblePrompts} dimensions={dimensions} />
+        <DimensionToggles />
+        <SamplingConfig promptCount={visiblePrompts.length} />
       </div>
 
-      <EntitySelector />
-      <DimensionToggles />
-      <SamplingConfig promptCount={visiblePrompts.length} />
-      <PromptPreview prompts={visiblePrompts} dimensions={dimensions} />
-      <RunBenchmarkButton />
+      {/* Right — sticky summary sidebar */}
+      <div className="w-80 shrink-0 hidden lg:block">
+        <BenchmarkSummary promptCount={visiblePrompts.length} />
+      </div>
     </div>
   )
 }
