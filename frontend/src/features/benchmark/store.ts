@@ -30,7 +30,7 @@ const INITIAL = {
   domainId: null,
   activeDims: new Set<number>(),
   numImages: 50,
-  resolution: "low",
+  resolution: "optimized",
   sampleMode: "recommended" as const,
   customSampleSize: 100,
 }

@@ -19,7 +19,7 @@ interface Props {
 
 export default function BenchmarkSummary({ promptCount }: Props) {
   const {
-    modelId, datasetId, setModelId, setDatasetId, domainId, activeDims, numImages,
+    modelId, datasetId, setModelId, setDatasetId, domainId, activeDims, numImages, resolution,
   } = useBenchmarkStore()
 
   const { data: models = [] } = useQuery({
@@ -38,7 +38,7 @@ export default function BenchmarkSummary({ promptCount }: Props) {
   })
 
   const domainName = domains.find((d) => d.domain_id === domainId)?.name ?? "—"
-  const TOKENS_PER_IMAGE = 85
+  const TOKENS_PER_IMAGE = resolution === "original" ? 340 : 85
   const estTokens = numImages * promptCount * TOKENS_PER_IMAGE
 
   return (

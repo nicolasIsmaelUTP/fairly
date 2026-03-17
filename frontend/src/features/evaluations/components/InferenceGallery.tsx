@@ -34,10 +34,36 @@ export default function InferenceGallery({ inferences, onAudit }: Props) {
             }
           >
             <CardContent className="pt-4 space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Prompt #{inf.prompt_id} · Image #{inf.image_id}
-              </p>
-              <p className="text-sm leading-relaxed">{inf.response}</p>
+              {/* Thumbnail */}
+              {inf.thumbnail_url ? (
+                <img
+                  src={inf.thumbnail_url}
+                  alt={`Image #${inf.image_id}`}
+                  className="w-full h-40 object-cover rounded-md bg-muted"
+                />
+              ) : (
+                <div className="w-full h-40 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                  No thumbnail
+                </div>
+              )}
+
+              {/* Prompt text */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">
+                  Prompt #{inf.prompt_id}
+                </p>
+                <p className="text-sm leading-relaxed bg-muted/50 rounded p-2">
+                  {inf.prompt_text || "—"}
+                </p>
+              </div>
+
+              {/* Model response */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Response</p>
+                <p className="text-sm leading-relaxed">{inf.response}</p>
+              </div>
+
+              {/* Audit buttons */}
               <div className="flex items-center gap-2 pt-2">
                 <Button
                   size="sm"

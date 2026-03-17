@@ -38,4 +38,7 @@ export const datasetsApi = {
 
   deleteColumn: (datasetId: number, columnId: number) =>
     api.delete(`/datasets/${datasetId}/columns/${columnId}`).then((r) => r.data),
+
+  dimensionClasses: (id: number) =>
+    api.get<Record<number, number>>(`/datasets/${id}/dimension-classes`).then((r) => r.data),
 }

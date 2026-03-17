@@ -11,6 +11,8 @@ import PromptPreview from "@/features/benchmark/components/PromptPreview"
 import BenchmarkSummary from "@/features/benchmark/components/BenchmarkSummary"
 import EntitySelector from "@/features/benchmark/components/EntitySelector"
 
+const MIN_SAMPLES_PER_CLASS = 5
+
 export default function BenchmarkPage() {
   const { domainId, datasetId, activeDims } = useBenchmarkStore()
 
@@ -24,6 +26,20 @@ export default function BenchmarkPage() {
     queryKey: ["dimensions"],
     queryFn: promptsApi.dimensions,
   })
+
+  // Fetch unique class counts per dimension for the active dataset
+  const { data: dimClasses = {} } = useQuery({
+    queryKey: ["dimension-classes", datasetId],
+    queryFn: () => datasetsApi.dimensionClasses(datasetId!),
+    enabled: !!datasetId,
+  })
+
+  // Recommended N = C_max × 5 (max unique classes among active dims)
+  const activeDimClasses = Array.from(activeDims)
+    .map((id) => dimClasses[id] ?? 0)
+    .filter((n) => n > 0)
+  const cMax = activeDimClasses.length > 0 ? Math.max(...activeDimClasses) : 10
+  const recommendedN = cMax * MIN_SAMPLES_PER_CLASS
 
   const visiblePrompts = allPrompts.filter((p) =>
     p.dimension_ids.some((id) => activeDims.has(id)),
@@ -48,7 +64,7 @@ export default function BenchmarkPage() {
       {/* Right — sticky summary sidebar */}
       <div className="w-80 shrink-0 hidden lg:block sticky top-6 space-y-6">
         <BenchmarkSummary promptCount={visiblePrompts.length} />
-        <SamplingConfig promptCount={visiblePrompts.length} />
+        <SamplingConfig promptCount={visiblePrompts.length} recommendedN={recommendedN} />
       </div>
     </div>
   )

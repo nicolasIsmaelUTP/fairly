@@ -77,6 +77,9 @@ export interface Inference {
   evaluation_id: number
   response: string
   audit_status: string
+  prompt_text: string
+  thumbnail_url: string
+  img_route: string
 }
 
 export interface Metric {
