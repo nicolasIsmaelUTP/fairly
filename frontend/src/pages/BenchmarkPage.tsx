@@ -25,7 +25,9 @@ export default function BenchmarkPage() {
     queryFn: promptsApi.dimensions,
   })
 
-  const visiblePrompts = allPrompts.filter((p) => activeDims.has(p.dimension_id))
+  const visiblePrompts = allPrompts.filter((p) =>
+    p.dimension_ids.some((id) => activeDims.has(id)),
+  )
 
   return (
     <div className="flex gap-6 items-start">
@@ -39,14 +41,14 @@ export default function BenchmarkPage() {
         </div>
 
         <UseCasePicker />
-        <PromptPreview prompts={visiblePrompts} dimensions={dimensions} />
         <DimensionToggles />
-        <SamplingConfig promptCount={visiblePrompts.length} />
+        <PromptPreview prompts={visiblePrompts} dimensions={dimensions} />
       </div>
 
       {/* Right — sticky summary sidebar */}
-      <div className="w-80 shrink-0 hidden lg:block">
+      <div className="w-80 shrink-0 hidden lg:block sticky top-6 space-y-6">
         <BenchmarkSummary promptCount={visiblePrompts.length} />
+        <SamplingConfig promptCount={visiblePrompts.length} />
       </div>
     </div>
   )

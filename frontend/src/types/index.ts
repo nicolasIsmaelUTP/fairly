@@ -53,8 +53,10 @@ export interface Dimension {
 export interface Prompt {
   prompt_id: number
   domain_id: number
-  dimension_id: number
+  dimension_ids: number[]
   text: string
+  expected_result: string
+  bias_type: string
   is_active: boolean
 }
 

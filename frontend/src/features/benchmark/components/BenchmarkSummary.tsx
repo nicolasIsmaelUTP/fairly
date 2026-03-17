@@ -7,7 +7,7 @@ import { promptsApi } from "@/features/benchmark/api"
 import { useBenchmarkStore } from "@/features/benchmark/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import RunBenchmarkButton from "./RunBenchmarkButton"
@@ -42,7 +42,7 @@ export default function BenchmarkSummary({ promptCount }: Props) {
   const estTokens = numImages * promptCount * TOKENS_PER_IMAGE
 
   return (
-    <Card className="sticky top-6">
+    <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-semibold flex items-center gap-2">
           <FlaskConical className="h-4 w-4 text-primary" />
@@ -59,7 +59,11 @@ export default function BenchmarkSummary({ promptCount }: Props) {
             value={modelId ? String(modelId) : ""}
             onValueChange={(v) => { if (v) setModelId(Number(v)) }}
           >
-            <SelectTrigger><SelectValue placeholder="Select model" /></SelectTrigger>
+            <SelectTrigger>
+              <span className="flex flex-1 text-left truncate text-sm">
+                {models.find((m) => m.model_id === modelId)?.name ?? "Select model"}
+              </span>
+            </SelectTrigger>
             <SelectContent>
               {models.map((m) => (
                 <SelectItem key={m.model_id} value={String(m.model_id)}>
@@ -79,7 +83,11 @@ export default function BenchmarkSummary({ promptCount }: Props) {
             value={datasetId ? String(datasetId) : ""}
             onValueChange={(v) => { if (v) setDatasetId(Number(v)) }}
           >
-            <SelectTrigger><SelectValue placeholder="Select dataset" /></SelectTrigger>
+            <SelectTrigger>
+              <span className="flex flex-1 text-left truncate text-sm">
+                {datasets.find((d) => d.dataset_id === datasetId)?.name ?? "Select dataset"}
+              </span>
+            </SelectTrigger>
             <SelectContent>
               {datasets.map((d) => (
                 <SelectItem key={d.dataset_id} value={String(d.dataset_id)}>

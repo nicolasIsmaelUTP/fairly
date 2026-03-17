@@ -1,15 +1,11 @@
 /** Datasets page — connect data, preview CSV, map columns to dimensions. */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link } from "react-router-dom"
 import { datasetsApi } from "@/features/datasets/api"
-import { settingsApi } from "@/features/settings/api"
 import { promptsApi } from "@/features/benchmark/api"
 import type { ColumnMapping, CsvPreview, Dimension } from "@/types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -26,14 +22,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  Database,
   Upload,
   FolderOpen,
   Image as ImageIcon,
   ScanSearch,
   FileSpreadsheet,
-  AlertTriangle,
-  Settings,
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -42,16 +35,7 @@ export default function DatasetList() {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Settings — check AWS keys
-  const { data: settings } = useQuery({
-    queryKey: ["settings"],
-    queryFn: settingsApi.get,
-  })
-  const hasAwsKeys = settings?.has_aws_keys ?? false
-
   // Form state
-  const [sourceType, setSourceType] = useState<"local" | "s3">("local")
-  const [folderPath, setFolderPath] = useState("")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -63,23 +47,10 @@ export default function DatasetList() {
   const [activeId, setActiveId] = useState<number | null>(null)
   const activeDataset = datasets.find((d) => d.dataset_id === activeId) ?? null
 
-  // Sync form from active dataset (including sourceType persistence)
-  useEffect(() => {
-    if (datasets.length > 0 && activeId === null) {
-      const ds = datasets[datasets.length - 1]
-      setActiveId(ds.dataset_id)
-      setFolderPath(ds.imgs_route)
-      setSourceType(ds.imgs_route.startsWith("s3://") ? "s3" : "local")
-    }
-  }, [datasets, activeId])
-
-  // Keep sourceType in sync when activeDataset changes
-  useEffect(() => {
-    if (activeDataset) {
-      setFolderPath(activeDataset.imgs_route)
-      setSourceType(activeDataset.imgs_route.startsWith("s3://") ? "s3" : "local")
-    }
-  }, [activeDataset?.dataset_id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-select last dataset
+  if (datasets.length > 0 && activeId === null) {
+    setActiveId(datasets[datasets.length - 1].dataset_id)
+  }
 
   // CSV preview for active dataset
   const { data: preview } = useQuery<CsvPreview>({
@@ -115,7 +86,7 @@ export default function DatasetList() {
     return (preview?.headers ?? []).filter((h) => !mappedColumns.has(h))
   }, [preview?.headers, mappedColumns])
 
-  // ── Connect / Reconnect ──────────────────────────────────────────────────
+  // ── Upload CSV / create dataset ───────────────────────────────────────────
   const connectMutation = useMutation({
     mutationFn: async () => {
       let csvPath = ""
@@ -124,16 +95,14 @@ export default function DatasetList() {
         csvPath = result.path!
       }
       if (activeDataset) {
-        const updates: Record<string, unknown> = { imgs_route: folderPath }
+        const updates: Record<string, unknown> = {}
         if (csvPath) updates.csv_route = csvPath
         return datasetsApi.update(activeDataset.dataset_id, updates)
       }
       return datasetsApi.create({
         name:
-          csvFile?.name?.replace(/\.(csv|tsv)$/i, "") ||
-          folderPath.split("/").pop() ||
-          "Dataset",
-        imgs_route: folderPath,
+          csvFile?.name?.replace(/\.(csv|tsv)$/i, "") || "Dataset",
+        imgs_route: "",
         csv_route: csvPath,
       })
     },
@@ -212,140 +181,55 @@ export default function DatasetList() {
         </p>
       </div>
 
-      {/* ── Row 1: Connection + CSV Upload (compact) ──────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
-        {/* Data Connection */}
-        <div className="border border-dashed rounded-lg p-5 space-y-4">
-          <h3 className="text-sm font-semibold">Data Connection</h3>
+      {/* ── CSV Upload ─────────────────────────────────────────────── */}
+      <div className="border border-dashed rounded-lg p-5 space-y-3">
+        <h3 className="text-sm font-semibold">CSV Metadata</h3>
 
-          {/* Source toggle */}
-          <div className="flex bg-muted rounded-lg p-0.5">
-            <button
-              className={cn(
-                "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
-                sourceType === "local"
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setSourceType("local")}
-            >
-              Local Folder
-            </button>
-            <button
-              className={cn(
-                "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
-                sourceType === "s3"
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setSourceType("s3")}
-            >
-              AWS S3
-            </button>
-          </div>
-
-          {/* S3 without keys warning */}
-          {sourceType === "s3" && !hasAwsKeys && (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">AWS credentials not configured</p>
-                <p className="mt-0.5">
-                  Go to{" "}
-                  <Link to="/settings" className="underline font-medium">
-                    Settings
-                  </Link>{" "}
-                  to add your AWS access key and secret key.
-                </p>
-              </div>
+        {hasCsv && !csvFile ? (
+          /* Compact: show file name + replace button */
+          <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50 border">
+            <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">
+                {activeDataset?.csv_route.split(/[\\/]/).pop()}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {preview
+                  ? `${preview.total_rows} rows · ${preview.total_columns} columns`
+                  : "Connected"}
+              </p>
             </div>
-          )}
-
-          {/* Path input */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              {sourceType === "s3" ? "S3 Path" : "Folder Path"}
-            </Label>
-            <Input
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
-              placeholder={
-                sourceType === "s3" ? "s3://fairly-data/" : "/data/images/"
-              }
-              disabled={sourceType === "s3" && !hasAwsKeys}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Replace
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.tsv"
+              className="hidden"
+              onChange={handleFileSelect}
             />
           </div>
-
-          {/* Connect button */}
-          <Button
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => connectMutation.mutate()}
-            disabled={
-              connectMutation.isPending ||
-              (!folderPath && !csvFile) ||
-              (sourceType === "s3" && !hasAwsKeys)
-            }
-          >
-            {connectMutation.isPending ? (
-              "Connecting…"
-            ) : (
-              <>
-                <Database className="h-4 w-4 mr-2" />
-                {activeDataset ? "Reconnect" : "Connect Dataset"}
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* CSV Upload — compact when already uploaded */}
-        <div className="border border-dashed rounded-lg p-5 space-y-3">
-          <h3 className="text-sm font-semibold">CSV Metadata</h3>
-
-          {hasCsv && !csvFile ? (
-            /* Compact: show file name + replace button */
-            <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50 border">
-              <FileSpreadsheet className="h-5 w-5 text-primary shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {activeDataset?.csv_route.split(/[\\/]/).pop()}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {preview
-                    ? `${preview.total_rows} rows · ${preview.total_columns} columns`
-                    : "Connected"}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Replace
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.tsv"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-            </div>
-          ) : (
-            /* Drop zone */
-            <>
-              <div
-                className={cn(
-                  "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-primary/50",
-                  dragOver ? "border-primary bg-primary/5" : "border-border",
-                )}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  setDragOver(true)
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleFileDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
+        ) : (
+          /* Drop zone */
+          <>
+            <div
+              className={cn(
+                "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-primary/50",
+                dragOver ? "border-primary bg-primary/5" : "border-border",
+              )}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleFileDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
                 <Upload className="mx-auto h-6 w-6 text-muted-foreground/40 mb-1.5" />
                 {csvFile ? (
                   <div className="flex items-center justify-center gap-2">
@@ -390,7 +274,6 @@ export default function DatasetList() {
             </>
           )}
         </div>
-      </div>
 
       {/* ── No dataset yet ────────────────────────────────────────────── */}
       {!activeDataset || !preview ? (
