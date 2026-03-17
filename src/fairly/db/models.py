@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -90,7 +91,7 @@ class Domain(Base):
 
 
 class Dimension(Base):
-    """Bias dimension (e.g. Gender, Age, Skin Tone)."""
+    """Bias dimension (e.g. Pronoun, Age, Apparent Skin Color)."""
 
     __tablename__ = "dimension"
 
@@ -98,7 +99,7 @@ class Dimension(Base):
     name = Column(String, nullable=False, unique=True)
 
     columns = relationship("ColumnMapping", back_populates="dimension")
-    prompts = relationship("Prompt", back_populates="dimension")
+    prompts = relationship("Prompt", secondary="prompt_dimension", back_populates="dimensions")
 
 
 # ── Column Mapping (Dataset ↔ Dimension bridge) ─────────────────────────────
@@ -118,22 +119,35 @@ class ColumnMapping(Base):
     dimension = relationship("Dimension", back_populates="columns")
 
 
+# ── Prompt ↔ Dimension (many-to-many bridge) ────────────────────────────────
+
+
+class PromptDimension(Base):
+    """Many-to-many bridge: which dimensions each prompt targets."""
+
+    __tablename__ = "prompt_dimension"
+
+    prompt_id = Column(Integer, ForeignKey("prompt.prompt_id"), primary_key=True)
+    dimension_id = Column(Integer, ForeignKey("dimension.dimension_id"), primary_key=True)
+
+
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
 
 class Prompt(Base):
-    """An evaluation question template tied to one domain and one dimension."""
+    """An evaluation question template tied to one domain and many dimensions."""
 
     __tablename__ = "prompt"
 
     prompt_id = Column(Integer, primary_key=True, autoincrement=True)
     domain_id = Column(Integer, ForeignKey("domain.domain_id"), nullable=False)
-    dimension_id = Column(Integer, ForeignKey("dimension.dimension_id"), nullable=False)
     text = Column(Text, nullable=False)
+    expected_result = Column(Text, default="")
+    bias_type = Column(String, default="")
     is_active = Column(Boolean, default=True)
 
     domain = relationship("Domain", back_populates="prompts")
-    dimension = relationship("Dimension", back_populates="prompts")
+    dimensions = relationship("Dimension", secondary="prompt_dimension", back_populates="prompts")
     inferences = relationship("Inference", back_populates="prompt")
 
 
