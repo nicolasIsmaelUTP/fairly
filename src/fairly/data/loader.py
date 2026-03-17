@@ -45,6 +45,9 @@ def resolve_image_path(base_route: str, relative_path: str) -> str:
     Returns:
         Full resolved path string.
     """
+    # If the relative path is already an absolute S3 URI, return as-is
+    if relative_path.startswith("s3://"):
+        return relative_path
     if base_route.startswith("s3://"):
         # For S3, concatenate the prefix and relative path
         return f"{base_route.rstrip('/')}/{relative_path.lstrip('/')}"
@@ -66,8 +69,8 @@ def create_thumbnail(source_path: str, image_id: int) -> str:
     thumb_path = THUMBNAILS_DIR / f"{image_id}.jpg"
 
     img = Image.open(source_path)
-    img.thumbnail((256, 256))
-    img.save(str(thumb_path), "JPEG", quality=80)
+    img.thumbnail((512, 512))
+    img.save(str(thumb_path), "JPEG", quality=85)
 
     return str(thumb_path)
 

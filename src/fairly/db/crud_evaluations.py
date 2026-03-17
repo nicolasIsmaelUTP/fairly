@@ -2,7 +2,7 @@
 
 import json
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from fairly.db.models import (
     Evaluation,
@@ -108,6 +108,7 @@ def list_inferences(db: Session, evaluation_id: int) -> list[Inference]:
     """
     return (
         db.query(Inference)
+        .options(joinedload(Inference.image), joinedload(Inference.prompt))
         .filter(Inference.evaluation_id == evaluation_id)
         .all()
     )

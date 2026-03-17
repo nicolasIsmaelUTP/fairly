@@ -65,3 +65,23 @@ def delete_model(db: Session, model_id: int) -> bool:
     db.delete(row)
     db.commit()
     return True
+
+
+def update_model(db: Session, model_id: int, metadata_json: str) -> Model | None:
+    """Update a model's metadata_json.
+
+    Args:
+        db: Active database session.
+        model_id: Primary key.
+        metadata_json: New JSON blob.
+
+    Returns:
+        The updated Model or None if not found.
+    """
+    row = get_model(db, model_id)
+    if row is None:
+        return None
+    row.metadata_json = metadata_json
+    db.commit()
+    db.refresh(row)
+    return row

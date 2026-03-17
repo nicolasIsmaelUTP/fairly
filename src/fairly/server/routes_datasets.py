@@ -177,6 +177,36 @@ def read_csv_preview(dataset_id: int, db: Session = Depends(get_db)):
     return get_csv_preview(ds.csv_route)
 
 
+@router.get("/{dataset_id}/dimension-classes")
+def read_dimension_classes(dataset_id: int, db: Session = Depends(get_db)):
+    """Return unique class count per mapped dimension for sampling calculation.
+
+    Response: { dimension_id: unique_count, ... }
+    """
+    import pandas as pd
+
+    ds = get_dataset(db, dataset_id)
+    if ds is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if not ds.csv_route:
+        return {}
+
+    cols = list_columns(db, dataset_id)
+    if not cols:
+        return {}
+
+    try:
+        df = pd.read_csv(ds.csv_route)
+    except Exception:
+        return {}
+
+    result: dict[int, int] = {}
+    for col in cols:
+        if col.name in df.columns:
+            result[col.dimension_id] = int(df[col.name].nunique())
+    return result
+
+
 # ── Column Mappings ──────────────────────────────────────────────────────────
 
 

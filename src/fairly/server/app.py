@@ -33,6 +33,13 @@ app.include_router(datasets_router, prefix="/api/datasets", tags=["datasets"])
 app.include_router(prompts_router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluations"])
 
+# ── Serve thumbnail images ───────────────────────────────────────────────────
+
+from fairly.config import THUMBNAILS_DIR
+
+if THUMBNAILS_DIR.exists():
+    app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAILS_DIR)), name="thumbnails")
+
 # ── Serve React static build ─────────────────────────────────────────────────
 
 STATIC_DIR = Path(__file__).parent / "static"

@@ -56,6 +56,9 @@ class InferenceOut(BaseModel):
     evaluation_id: int
     response: str
     audit_status: str
+    prompt_text: str = ""
+    thumbnail_url: str = ""
+    img_route: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -133,8 +136,30 @@ def launch_evaluation(
 
 @router.get("/{evaluation_id}/inferences", response_model=list[InferenceOut])
 def read_inferences(evaluation_id: int, db: Session = Depends(get_db)):
-    """List all inferences for an evaluation."""
-    return list_inferences(db, evaluation_id)
+    """List all inferences for an evaluation, enriched with prompt text and thumbnail."""
+    rows = list_inferences(db, evaluation_id)
+    results = []
+    for inf in rows:
+        thumb = ""
+        img_route = ""
+        if inf.image:
+            img_route = inf.image.img_route or ""
+            if inf.image.local_thumbnail_route:
+                # Serve via static mount: /thumbnails/<filename>
+                from pathlib import Path
+                thumb = "/thumbnails/" + Path(inf.image.local_thumbnail_route).name
+        results.append(InferenceOut(
+            inference_id=inf.inference_id,
+            image_id=inf.image_id,
+            prompt_id=inf.prompt_id,
+            evaluation_id=inf.evaluation_id,
+            response=inf.response,
+            audit_status=inf.audit_status,
+            prompt_text=inf.prompt.text if inf.prompt else "",
+            thumbnail_url=thumb,
+            img_route=img_route,
+        ))
+    return results
 
 
 @router.patch("/inferences/{inference_id}", response_model=InferenceOut)

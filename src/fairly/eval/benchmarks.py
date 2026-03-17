@@ -6,7 +6,7 @@ This module figures out *what* to evaluate before the runner executes it.
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from fairly.db.models import ColumnMapping, Prompt
+from fairly.db.models import ColumnMapping, Prompt, PromptDimension
 
 
 def get_active_prompts(
@@ -27,11 +27,13 @@ def get_active_prompts(
     """
     return (
         db.query(Prompt)
+        .join(PromptDimension, Prompt.prompt_id == PromptDimension.prompt_id)
         .filter(
             Prompt.domain_id == domain_id,
-            Prompt.dimension_id.in_(dimension_ids),
+            PromptDimension.dimension_id.in_(dimension_ids),
             Prompt.is_active.is_(True),
         )
+        .distinct()
         .all()
     )
 

@@ -5,16 +5,66 @@ Orchestrates sampling, model inference, and metric computation.
 
 import json
 import logging
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from fairly.crypto import decrypt
 from fairly.data.loader import create_thumbnail, load_csv, resolve_image_path
-from fairly.db.models import Evaluation, Image, Inference, Metric
+from fairly.db.models import Evaluation, Image, Inference, Metric, Prompt
 from fairly.eval.benchmarks import get_active_prompts, get_mapped_dimensions, stratified_sample
 from fairly.models.base import BaseVLMClient
 
 logger = logging.getLogger(__name__)
+
+
+def _get_s3_client(aws_key: str, aws_secret: str):
+    """Create a boto3 S3 client using the given credentials."""
+    import boto3
+    return boto3.client(
+        "s3",
+        aws_access_key_id=aws_key,
+        aws_secret_access_key=aws_secret,
+    )
+
+
+def _download_s3_for_thumbnail(
+    s3_uri: str, image_id: int, aws_key: str, aws_secret: str, client=None
+) -> str:
+    """Download an S3 image to a temp local file for thumbnailing.
+
+    Returns the local file path.
+    """
+    from fairly.config import THUMBNAILS_DIR
+    from fairly.data.s3 import parse_s3_uri
+
+    if client is None:
+        client = _get_s3_client(aws_key, aws_secret)
+
+    bucket, key = parse_s3_uri(s3_uri)
+    ext = Path(key).suffix or ".jpg"
+    local_path = THUMBNAILS_DIR / f"raw_{image_id}{ext}"
+    logger.info("Downloading s3://%s/%s → %s", bucket, key, local_path)
+    client.download_file(bucket, key, str(local_path))
+    return str(local_path)
+
+
+def _build_prompt(prompt: Prompt) -> str:
+    """Construct the full prompt text including expected response format.
+
+    Combines the raw question with the expected_result to force the model
+    into a constrained output format, reducing ambiguity.
+    """
+    text = prompt.text.strip()
+    expected = (prompt.expected_result or "").strip()
+    if not expected:
+        return text
+    return (
+        f"{text}\n\n"
+        f"Respond with ONLY one of the following: {expected}\n"
+        f"Do not explain. Just answer."
+    )
 
 
 def _build_model_client(evaluation: Evaluation) -> BaseVLMClient:
@@ -34,7 +84,7 @@ def _build_model_client(evaluation: Evaluation) -> BaseVLMClient:
 
         return FeatherlessClient(
             name=model.name,
-            api_key=meta.get("api_key", ""),
+            api_key=decrypt(meta.get("api_key", "")),
             model_id=meta.get("model_id", model.name),
         )
     else:
@@ -43,7 +93,8 @@ def _build_model_client(evaluation: Evaluation) -> BaseVLMClient:
         return CustomModelClient(
             name=model.name,
             endpoint=meta.get("endpoint", ""),
-            api_key=meta.get("api_key", ""),
+            api_key=decrypt(meta.get("api_key", "")),
+            model_id=meta.get("model_id", ""),
         )
 
 
@@ -77,6 +128,7 @@ def run_evaluation(db: Session, evaluation_id: int) -> Evaluation:
     try:
         client = _build_model_client(evaluation)
         dataset = evaluation.dataset
+        logger.info("=== Evaluation %d starting ===", evaluation_id)
 
         # --- 1. Load & sample images ---
         dim_ids = [d.dimension_id for d in evaluation.dimensions]
@@ -85,13 +137,24 @@ def run_evaluation(db: Session, evaluation_id: int) -> Evaluation:
 
         df = load_csv(dataset.csv_route)
         sampled = stratified_sample(df, group_cols, n=evaluation.num_images)
+        logger.info("Sampled %d images from dataset %d", len(sampled), dataset.dataset_id)
 
-        # Pick the column that holds the image path (first column by default)
-        img_col = sampled.columns[0]
+        # Use the configured image column (s3_path, local_path, etc.)
+        img_col = dataset.image_column or sampled.columns[0]
+
+        # Get S3 credentials from DB for downloading images
+        from fairly.db.crud_settings import get_settings
+        settings = get_settings(db)
+        aws_key = decrypt(settings.aws_access_key or "") if settings else ""
+        aws_secret = decrypt(settings.aws_secret_access_key or "") if settings else ""
+        s3_client = None
 
         images: list[Image] = []
-        for _, row in sampled.iterrows():
-            img_route = resolve_image_path(dataset.imgs_route, str(row[img_col]))
+        for idx, (_, row) in enumerate(sampled.iterrows()):
+            raw_path = str(row[img_col])
+            # Build the full image route (S3 URI or local path)
+            img_route = resolve_image_path(dataset.imgs_route, raw_path)
+
             img = Image(
                 dataset_id=dataset.dataset_id,
                 img_route=img_route,
@@ -99,28 +162,62 @@ def run_evaluation(db: Session, evaluation_id: int) -> Evaluation:
             db.add(img)
             db.flush()
 
-            # Create thumbnail for fast UI rendering
+            # Download from S3 and create thumbnail
             try:
-                thumb = create_thumbnail(img_route, img.image_id)
+                if img_route.startswith("s3://"):
+                    if s3_client is None:
+                        s3_client = _get_s3_client(aws_key, aws_secret)
+                    local_path = _download_s3_for_thumbnail(
+                        img_route, img.image_id, aws_key, aws_secret, s3_client
+                    )
+                else:
+                    local_path = img_route
+
+                thumb = create_thumbnail(local_path, img.image_id)
                 img.local_thumbnail_route = thumb
-            except Exception:
-                logger.warning("Could not create thumbnail for %s", img_route)
+                logger.info("[%d/%d] Thumbnail OK → %s", idx + 1, len(sampled), thumb)
+
+                # Clean up raw S3 download to save disk space
+                if img_route.startswith("s3://"):
+                    raw_file = Path(local_path)
+                    if raw_file.exists() and str(raw_file) != thumb:
+                        raw_file.unlink()
+            except Exception as exc:
+                logger.warning("[%d/%d] Thumbnail FAILED for %s: %s", idx + 1, len(sampled), img_route, exc)
 
             images.append(img)
 
+        logger.info("Preprocessing done: %d images ready", len(images))
+
         # --- 2. Fetch prompts ---
         prompts = get_active_prompts(db, evaluation.domain_id, dim_ids)
+        logger.info("Fetched %d prompts for domain %d", len(prompts), evaluation.domain_id)
 
         # --- 3. Run inferences ---
         total = len(images) * len(prompts)
         completed = 0
+        skipped = 0
         for img in images:
             for prompt in prompts:
-                try:
-                    response_text = client.predict(img.img_route, prompt.text)
-                except Exception as exc:
-                    logger.error("Inference failed: %s", exc)
-                    response_text = f"[ERROR] {exc}"
+                inference_path = img.local_thumbnail_route or ""
+                if not inference_path or not Path(inference_path).exists():
+                    # No usable local image — skip instead of crashing
+                    logger.warning(
+                        "Skipping inference: no local image for image_id=%d (route=%s)",
+                        img.image_id, img.img_route,
+                    )
+                    response_text = "[SKIPPED] No local image available"
+                    skipped += 1
+                else:
+                    try:
+                        full_prompt = _build_prompt(prompt)
+                        response_text = client.predict(inference_path, full_prompt)
+                    except Exception as exc:
+                        logger.error(
+                            "Inference FAILED (image_id=%d, prompt_id=%d): %s",
+                            img.image_id, prompt.prompt_id, exc,
+                        )
+                        response_text = f"[ERROR] {exc}"
 
                 inf = Inference(
                     image_id=img.image_id,
@@ -132,7 +229,9 @@ def run_evaluation(db: Session, evaluation_id: int) -> Evaluation:
                 db.add(inf)
                 completed += 1
                 if completed % 10 == 0:
-                    logger.info("Progress: %d / %d inferences", completed, total)
+                    logger.info("Progress: %d / %d inferences (skipped %d)", completed, total, skipped)
+
+        logger.info("=== Evaluation %d done: %d inferences, %d skipped ===", evaluation_id, completed, skipped)
 
         # --- 4. Compute placeholder metrics ---
         _compute_metrics(db, evaluation)
