@@ -32,6 +32,7 @@ class EvaluationOut(BaseModel):
     num_images: int
     images_resolution: str
     status: str
+    progress: int = 0
 
     model_config = {"from_attributes": True}
 

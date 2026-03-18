@@ -166,6 +166,7 @@ class Evaluation(Base):
     num_images = Column(Integer, default=50)
     images_resolution = Column(String, default="low")  # "low" | "high"
     status = Column(String, default="pending")  # "pending" | "running" | "completed" | "failed"
+    progress = Column(Integer, default=0)  # 0-100
 
     model = relationship("Model", back_populates="evaluations")
     dataset = relationship("Dataset", back_populates="evaluations")
