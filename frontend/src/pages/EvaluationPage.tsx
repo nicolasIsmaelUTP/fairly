@@ -17,6 +17,7 @@ export default function EvaluationPage() {
   const evalId = Number(id)
   const queryClient = useQueryClient()
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [hasDimension, setHasDimension] = useState(false)
 
   const { data: evaluation } = useQuery({
     queryKey: ["evaluation", evalId],
@@ -32,13 +33,6 @@ export default function EvaluationPage() {
     queryFn: () => evaluationsApi.inferences(evalId),
     refetchInterval: (query) =>
       evaluation?.status === "running" || evaluation?.status === "pending" ? 3000 : false,
-  })
-
-  const { data: metrics = [] } = useQuery({
-    queryKey: ["metrics", evalId],
-    queryFn: () => evaluationsApi.metrics(evalId),
-    refetchInterval: (query) =>
-      evaluation?.status === "running" ? 5000 : false,
   })
 
   /* Optimistic audit update — updates local cache immediately (Story 4.1). */
@@ -112,20 +106,30 @@ export default function EvaluationPage() {
       {/* Progress bar (Story 3.3) */}
       <ProgressBar evaluation={evaluation} inferenceCount={inferences.length} />
 
-      {/* Metrics with live recalculation */}
-      {inferences.length > 0 && (
-        <MetricsPanel metrics={metrics} inferences={inferences} />
+      {/* Dimension analysis charts */}
+      {evaluation.status === "completed" && (
+        <MetricsPanel
+          evaluationId={evalId}
+          onAudit={(inferenceId, status) =>
+            auditMutation.mutate({ inferenceId, status })
+          }
+          onDimensionChange={setHasDimension}
+        />
       )}
 
-      <Separator />
+      {!hasDimension && (
+        <>
+          <Separator />
 
-      {/* Inference gallery */}
-      <InferenceGallery
-        inferences={inferences}
-        onAudit={(inferenceId, status) =>
-          auditMutation.mutate({ inferenceId, status })
-        }
-      />
+          {/* Inference gallery */}
+          <InferenceGallery
+            inferences={inferences}
+            onAudit={(inferenceId, status) =>
+              auditMutation.mutate({ inferenceId, status })
+            }
+          />
+        </>
+      )}
     </div>
   )
 }

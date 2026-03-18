@@ -1,5 +1,5 @@
 import api from "@/lib/axios"
-import type { Evaluation, Inference, Metric } from "@/types"
+import type { DimensionOption, Evaluation, Inference, Metric, PromptDistribution, Stats } from "@/types"
 
 export const evaluationsApi = {
   list: () => api.get<Evaluation[]>("/evaluations").then((r) => r.data),
@@ -28,4 +28,14 @@ export const evaluationsApi = {
 
   metrics: (evalId: number) =>
     api.get<Metric[]>(`/evaluations/${evalId}/metrics`).then((r) => r.data),
+
+  dimensions: (evalId: number) =>
+    api.get<DimensionOption[]>(`/evaluations/${evalId}/dimensions`).then((r) => r.data),
+
+  analysis: (evalId: number, dimensionId: number) =>
+    api.get<PromptDistribution[]>(`/evaluations/${evalId}/analysis`, {
+      params: { dimension_id: dimensionId },
+    }).then((r) => r.data),
+
+  stats: () => api.get<Stats>("/stats").then((r) => r.data),
 }

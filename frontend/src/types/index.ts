@@ -69,6 +69,7 @@ export interface Evaluation {
   images_resolution: string
   status: string
   progress: number
+  created_at?: string
 }
 
 export interface Inference {
@@ -77,6 +78,7 @@ export interface Inference {
   prompt_id: number
   evaluation_id: number
   response: string
+  classified_response: string
   audit_status: string
   prompt_text: string
   thumbnail_url: string
@@ -89,4 +91,42 @@ export interface Metric {
   name: string
   value_json: string
   chart_type: string
+}
+
+export interface DimensionOption {
+  dimension_id: number
+  name: string
+  csv_column: string
+}
+
+export interface NumericBoxData {
+  dimension: string
+  min: number
+  q1: number
+  median: number
+  q3: number
+  max: number
+  mean: number
+  count: number
+}
+
+export interface PromptDistribution {
+  prompt_id: number
+  prompt_text: string
+  distribution: Record<string, Record<string, number>>
+  chart_hint?: "categorical" | "numeric"
+  numeric_data?: NumericBoxData[]
+}
+
+export interface WeeklyActivity {
+  week: string
+  count: number
+}
+
+export interface Stats {
+  models_connected: number
+  datasets_mapped: number
+  evaluations_run: number
+  total_inferences: number
+  weekly_activity: WeeklyActivity[]
 }
