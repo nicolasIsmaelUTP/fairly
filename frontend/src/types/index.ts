@@ -68,6 +68,7 @@ export interface Evaluation {
   num_images: number
   images_resolution: string
   status: string
+  progress: number
 }
 
 export interface Inference {
