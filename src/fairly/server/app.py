@@ -14,6 +14,7 @@ from fairly.server.routes_evaluations import router as evaluations_router
 from fairly.server.routes_models import router as models_router
 from fairly.server.routes_prompts import router as prompts_router
 from fairly.server.routes_settings import router as settings_router
+from fairly.server.routes_stats import router as stats_router
 
 app = FastAPI(title="fairly", version="0.1.0")
 
@@ -32,6 +33,7 @@ app.include_router(models_router, prefix="/api/models", tags=["models"])
 app.include_router(datasets_router, prefix="/api/datasets", tags=["datasets"])
 app.include_router(prompts_router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(evaluations_router, prefix="/api/evaluations", tags=["evaluations"])
+app.include_router(stats_router, prefix="/api/stats", tags=["stats"])
 
 # ── Serve thumbnail images ───────────────────────────────────────────────────
 

@@ -7,6 +7,7 @@ The schema is designed for a local SQLite database (similar to MLflow).
 from sqlalchemy import (
     Boolean,
     Column,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -167,6 +168,7 @@ class Evaluation(Base):
     images_resolution = Column(String, default="low")  # "low" | "high"
     status = Column(String, default="pending")  # "pending" | "running" | "completed" | "failed"
     progress = Column(Integer, default=0)  # 0-100
+    created_at = Column(DateTime)
 
     model = relationship("Model", back_populates="evaluations")
     dataset = relationship("Dataset", back_populates="evaluations")
@@ -204,6 +206,7 @@ class Image(Base):
     dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"), nullable=False)
     img_route = Column(String, nullable=False)
     local_thumbnail_route = Column(String, default="")
+    metadata_json = Column(Text, default="{}")  # CSV row values for cross-dimensional analysis
 
     dataset = relationship("Dataset", back_populates="images")
     inferences = relationship("Inference", back_populates="image")
@@ -222,6 +225,7 @@ class Inference(Base):
     prompt_id = Column(Integer, ForeignKey("prompt.prompt_id"), nullable=False)
     evaluation_id = Column(Integer, ForeignKey("evaluation.evaluation_id"), nullable=False)
     response = Column(Text, default="")
+    classified_response = Column(String, default="")  # normalized/classified model response
     audit_status = Column(String, default="unreviewed")  # "unreviewed" | "pass" | "flag"
 
     image = relationship("Image", back_populates="inferences")

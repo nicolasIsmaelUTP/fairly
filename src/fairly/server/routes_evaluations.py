@@ -1,8 +1,11 @@
 """API routes for evaluations, inferences, and metrics."""
 
 import json
+from collections import defaultdict
+from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -33,6 +36,7 @@ class EvaluationOut(BaseModel):
     images_resolution: str
     status: str
     progress: int = 0
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +60,7 @@ class InferenceOut(BaseModel):
     prompt_id: int
     evaluation_id: int
     response: str
+    classified_response: str = ""
     audit_status: str
     prompt_text: str = ""
     thumbnail_url: str = ""
@@ -155,6 +160,7 @@ def read_inferences(evaluation_id: int, db: Session = Depends(get_db)):
             prompt_id=inf.prompt_id,
             evaluation_id=inf.evaluation_id,
             response=inf.response,
+            classified_response=inf.classified_response or "",
             audit_status=inf.audit_status,
             prompt_text=inf.prompt.text if inf.prompt else "",
             thumbnail_url=thumb,
@@ -184,6 +190,181 @@ def audit_inference(
 def read_metrics(evaluation_id: int, db: Session = Depends(get_db)):
     """List all metrics for an evaluation."""
     return list_metrics(db, evaluation_id)
+
+
+# ── Dimension Analysis ───────────────────────────────────────────────────────
+
+
+@router.get("/{evaluation_id}/dimensions")
+def evaluation_dimensions(evaluation_id: int, db: Session = Depends(get_db)):
+    """List all dimensions available for cross-analysis on this evaluation's dataset."""
+    from fairly.db.models import ColumnMapping, Dimension
+
+    evaluation = get_evaluation(db, evaluation_id)
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+
+    mappings = (
+        db.query(ColumnMapping)
+        .filter(ColumnMapping.dataset_id == evaluation.dataset_id)
+        .all()
+    )
+
+    seen = set()
+    dimensions = []
+    for m in mappings:
+        if m.dimension_id in seen:
+            continue
+        seen.add(m.dimension_id)
+        dim = db.query(Dimension).filter(Dimension.dimension_id == m.dimension_id).first()
+        if dim:
+            dimensions.append({
+                "dimension_id": dim.dimension_id,
+                "name": dim.name,
+                "csv_column": m.name,
+            })
+    return dimensions
+
+
+@router.get("/{evaluation_id}/analysis")
+def dimension_analysis(
+    evaluation_id: int,
+    dimension_id: int = Query(..., description="Dimension to cross-analyze"),
+    db: Session = Depends(get_db),
+):
+    """Cross-dimensional analysis: group classified responses by dimension values per prompt."""
+    from fairly.db.models import ColumnMapping
+    from fairly.eval.runner import classify_response
+
+    evaluation = get_evaluation(db, evaluation_id)
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+
+    mapping = (
+        db.query(ColumnMapping)
+        .filter(
+            ColumnMapping.dataset_id == evaluation.dataset_id,
+            ColumnMapping.dimension_id == dimension_id,
+        )
+        .first()
+    )
+    if mapping is None:
+        raise HTTPException(status_code=404, detail="Dimension not mapped for this dataset")
+
+    csv_column = mapping.name
+    inferences = list_inferences(db, evaluation_id)
+
+    # Fallback: load CSV for images that have empty metadata_json
+    csv_lookup: dict[str, dict] = {}
+    needs_csv = any(
+        not inf.image or not inf.image.metadata_json or inf.image.metadata_json in ("{}", "")
+        for inf in inferences
+    )
+    if needs_csv and evaluation.dataset.csv_route:
+        try:
+            import pandas as pd
+            df = pd.read_csv(evaluation.dataset.csv_route)
+            img_col = evaluation.dataset.image_column or df.columns[0]
+            for _, row in df.iterrows():
+                key = str(row[img_col])
+                csv_lookup[key] = {str(c): str(v) for c, v in row.items()}
+        except Exception:
+            pass
+
+    # Build per-prompt distribution: dimension_value → classified_response → count
+    result: dict[int, dict] = {}
+    for inf in inferences:
+        metadata = {}
+        if inf.image and getattr(inf.image, "metadata_json", None):
+            try:
+                metadata = json.loads(inf.image.metadata_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Fallback to CSV lookup when metadata is empty
+        if not metadata and inf.image and csv_lookup:
+            img_route = inf.image.img_route or ""
+            # Try matching by full route or just the filename
+            metadata = csv_lookup.get(img_route, {})
+            if not metadata:
+                from pathlib import PurePosixPath
+                fname = PurePosixPath(img_route).name
+                for csv_key, csv_row in csv_lookup.items():
+                    if str(csv_key).endswith(fname) or fname in str(csv_key):
+                        metadata = csv_row
+                        break
+
+        dim_value = str(metadata.get(csv_column, "Unknown"))
+        classified = inf.classified_response if inf.classified_response else classify_response(inf.response)
+        raw_response = (inf.response or "").strip()
+
+        pid = inf.prompt_id
+        if pid not in result:
+            result[pid] = {
+                "prompt_id": pid,
+                "prompt_text": inf.prompt.text if inf.prompt else f"Prompt #{pid}",
+                "distribution": defaultdict(lambda: defaultdict(int)),
+                "raw_values": defaultdict(list),  # dim_value -> [raw responses]
+            }
+
+        result[pid]["distribution"][dim_value][classified] += 1
+        result[pid]["raw_values"][dim_value].append(raw_response)
+
+    charts = []
+    for pid in sorted(result.keys()):
+        data = result[pid]
+        dist = {k: dict(v) for k, v in data["distribution"].items()}
+
+        # Detect if the prompt has mostly numeric responses
+        all_raw = [v for vals in data["raw_values"].values() for v in vals]
+        numeric_count = 0
+        for v in all_raw:
+            try:
+                float(v)
+                numeric_count += 1
+            except (ValueError, TypeError):
+                pass
+
+        is_numeric = len(all_raw) > 0 and numeric_count / len(all_raw) > 0.5
+
+        entry = {
+            "prompt_id": data["prompt_id"],
+            "prompt_text": data["prompt_text"],
+            "distribution": dist,
+            "chart_hint": "numeric" if is_numeric else "categorical",
+        }
+
+        if is_numeric:
+            # Build boxplot-style data: per dimension value, list of numeric values
+            numeric_data = []
+            for dim_val in sorted(data["raw_values"].keys()):
+                values = []
+                for v in data["raw_values"][dim_val]:
+                    try:
+                        values.append(float(v))
+                    except (ValueError, TypeError):
+                        pass
+                if values:
+                    values.sort()
+                    n = len(values)
+                    q1 = values[n // 4] if n >= 4 else values[0]
+                    median = values[n // 2]
+                    q3 = values[(3 * n) // 4] if n >= 4 else values[-1]
+                    numeric_data.append({
+                        "dimension": dim_val,
+                        "min": values[0],
+                        "q1": q1,
+                        "median": median,
+                        "q3": q3,
+                        "max": values[-1],
+                        "mean": round(sum(values) / n, 2),
+                        "count": n,
+                    })
+            entry["numeric_data"] = numeric_data
+
+        charts.append(entry)
+
+    return charts
 
 
 # ── PDF Export ───────────────────────────────────────────────────────────────

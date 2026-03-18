@@ -71,6 +71,8 @@ def create_evaluation(
     Returns:
         The newly created Evaluation.
     """
+    from datetime import datetime, timezone
+
     ev = Evaluation(
         model_id=model_id,
         dataset_id=dataset_id,
@@ -78,6 +80,7 @@ def create_evaluation(
         num_images=num_images,
         images_resolution=images_resolution,
         status="pending",
+        created_at=datetime.now(timezone.utc),
     )
     db.add(ev)
     db.flush()  # get evaluation_id before inserting bridge rows
